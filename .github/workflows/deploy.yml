@@ -52,7 +52,7 @@ jobs:
           printf '%s\n' "$SG_SSH_KEY" > ~/.ssh/sg_key && chmod 600 ~/.ssh/sg_key
           # SiteGround keys are passphrase protected; strip it inside this throwaway runner only.
           if [ -n "$SG_SSH_PASSPHRASE" ]; then ssh-keygen -p -P "$SG_SSH_PASSPHRASE" -N "" -f ~/.ssh/sg_key >/dev/null; fi
-          ssh-keyscan -p "$SG_PORT" "$SG_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh-keyscan -p "$(printf %s "$SG_PORT" | tr -d "[:space:]")" "$(printf %s "$SG_HOST" | tr -d "[:space:]")" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Check connection and target folder
         env:
@@ -61,6 +61,8 @@ jobs:
           SG_PORT: ${{ secrets.SG_PORT }}
         run: |
           # Report problems as annotations so they can be read without the full log.
+          SG_HOST=$(printf '%s' "$SG_HOST" | tr -d '[:space:]'); SG_USER=$(printf '%s' "$SG_USER" | tr -d '[:space:]')
+          SG_PORT=$(printf '%s' "$SG_PORT" | tr -d '[:space:]'); REMOTE_PATH=$(printf '%s' "$REMOTE_PATH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
           ip=$(getent hosts "$SG_HOST" | awk '{print $1}' | head -1)
           if [ -z "$ip" ]; then
             echo "::error::SG_HOST does not resolve. The domain may not point at SiteGround yet. Use the server hostname from Site Tools instead."
@@ -79,8 +81,17 @@ jobs:
           esac
 
       - name: Upload site
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
         run: |
+          SG_HOST=$(printf '%s' "$SG_HOST" | tr -d '[:space:]'); SG_USER=$(printf '%s' "$SG_USER" | tr -d '[:space:]')
+          SG_PORT=$(printf '%s' "$SG_PORT" | tr -d '[:space:]'); REMOTE_PATH=$(printf '%s' "$REMOTE_PATH" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
           FLAGS="-rlvz --checksum --exclude=.git/ --exclude=.github/ --exclude=README.md --exclude=CLAUDE.md --exclude=.gitkeep"
           if [ "${{ inputs.dry_run }}" = "true" ]; then FLAGS="$FLAGS --dry-run"; echo "DRY RUN: nothing will be uploaded"; fi
           if [ "${{ inputs.remove_old_files }}" = "true" ]; then FLAGS="$FLAGS --delete --exclude=.well-known/"; fi
-          rsync $FLAGS -e "ssh -o StrictHostKeyChecking=accept-new -i $HOME/.ssh/sg_key -p ${{ secrets.SG_PORT }}" ./ "${{ secrets.SG_USER }}@${{ secrets.SG_HOST }}:$REMOTE_PATH/"
+          out=$(rsync $FLAGS -e "ssh -o StrictHostKeyChecking=accept-new -i $HOME/.ssh/sg_key -p $SG_PORT" ./ "$SG_USER@$SG_HOST:$REMOTE_PATH/" 2>&1) || { echo "::error::Upload failed: $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"; exit 1; }
+          echo "$out"
+          files=$(printf '%s\n' "$out" | grep -vE '^(sending|sent|total|DRY|$)|/$' | tr '\n' ' ')
+          echo "::notice::$( [ "${{ inputs.dry_run }}" = "true" ] && echo 'Dry run, would upload' || echo 'Uploaded'): ${files:-nothing changed}"
