@@ -67,6 +67,8 @@ jobs:
             exit 1
           fi
           echo "::notice::SG_HOST resolves to $ip"
+          fp=$(ssh-keygen -lf ~/.ssh/sg_key 2>/dev/null | awk '{print $2" "$NF}')
+          echo "::notice::Key fingerprint in GitHub: $fp. Logging in as user starting ${SG_USER:0:6}, port ${#SG_PORT}-digit."
           if ! out=$(ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/sg_key -p "$SG_PORT" "$SG_USER@$SG_HOST" "test -d '$REMOTE_PATH' && echo FOLDER_OK || echo FOLDER_MISSING" 2>&1); then
             echo "::error::SSH failed: $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
             exit 1
