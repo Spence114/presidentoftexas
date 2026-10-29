@@ -55,13 +55,30 @@ jobs:
           ssh-keyscan -p "$SG_PORT" "$SG_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
       - name: Check connection and target folder
+        env:
+          SG_HOST: ${{ secrets.SG_HOST }}
+          SG_USER: ${{ secrets.SG_USER }}
+          SG_PORT: ${{ secrets.SG_PORT }}
         run: |
-          ssh -i ~/.ssh/sg_key -p "${{ secrets.SG_PORT }}" "${{ secrets.SG_USER }}@${{ secrets.SG_HOST }}" \
-            "test -d '$REMOTE_PATH' && echo 'Target folder found' && ls -1 '$REMOTE_PATH' | head -40"
+          # Report problems as annotations so they can be read without the full log.
+          ip=$(getent hosts "$SG_HOST" | awk '{print $1}' | head -1)
+          if [ -z "$ip" ]; then
+            echo "::error::SG_HOST does not resolve. The domain may not point at SiteGround yet. Use the server hostname from Site Tools instead."
+            exit 1
+          fi
+          echo "::notice::SG_HOST resolves to $ip"
+          if ! out=$(ssh -o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=accept-new -i ~/.ssh/sg_key -p "$SG_PORT" "$SG_USER@$SG_HOST" "test -d '$REMOTE_PATH' && echo FOLDER_OK || echo FOLDER_MISSING" 2>&1); then
+            echo "::error::SSH failed: $(printf '%s' "$out" | tail -3 | tr '\n' ' ')"
+            exit 1
+          fi
+          case "$out" in
+            *FOLDER_OK*) echo "::notice::Connected, and the target folder exists." ;;
+            *) echo "::error::Connected, but the folder in SG_PATH does not exist."; exit 1 ;;
+          esac
 
       - name: Upload site
         run: |
           FLAGS="-rlvz --checksum --exclude=.git/ --exclude=.github/ --exclude=README.md --exclude=CLAUDE.md --exclude=.gitkeep"
           if [ "${{ inputs.dry_run }}" = "true" ]; then FLAGS="$FLAGS --dry-run"; echo "DRY RUN: nothing will be uploaded"; fi
           if [ "${{ inputs.remove_old_files }}" = "true" ]; then FLAGS="$FLAGS --delete --exclude=.well-known/"; fi
-          rsync $FLAGS -e "ssh -i $HOME/.ssh/sg_key -p ${{ secrets.SG_PORT }}" ./ "${{ secrets.SG_USER }}@${{ secrets.SG_HOST }}:$REMOTE_PATH/"
+          rsync $FLAGS -e "ssh -o StrictHostKeyChecking=accept-new -i $HOME/.ssh/sg_key -p ${{ secrets.SG_PORT }}" ./ "${{ secrets.SG_USER }}@${{ secrets.SG_HOST }}:$REMOTE_PATH/"
