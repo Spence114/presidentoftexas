@@ -320,14 +320,10 @@ footer p{margin:0;font-family:var(--mono);font-size:10px;line-height:1.7;max-wid
 <script>
 (function(){
   var intro=document.getElementById('intro'),stage=document.getElementById('intro-stage'),box=document.getElementById('intro-box'),btn=document.getElementById('intro-enter');
-  // Show once per browser session. Add ?intro to the URL to see it again.
-  var seen=false;
-  try{ seen=sessionStorage.getItem('nt_intro')==='1' }catch(e){}
-  if(seen && location.search.indexOf('intro')===-1){ intro.remove(); return; }
+  // Plays on every visit to the home page.
   document.documentElement.style.overflow='hidden';
   setTimeout(function(){ stage.classList.add('armed'); box.classList.add('show'); btn.focus({preventScroll:true}); },5800);
   btn.addEventListener('click',function(){
-    try{ sessionStorage.setItem('nt_intro','1') }catch(e){}
     intro.classList.add('gone'); document.documentElement.style.overflow='';
     setTimeout(function(){ intro.remove() },1300);
   });
